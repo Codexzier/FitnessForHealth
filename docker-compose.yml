@@ -9,7 +9,7 @@ services:
       - PORT=${PORT:-8095}
       - TZ=${TZ:-Europe/Berlin}
     ports:
-      - "${PORT:-8095}:${PORT:-8095}"
+      - "${PORT:-8098}:${PORT:-8095}"
     volumes:
       # Datenbank (fitness.db) und Bilder (images/) – übersteht Container-Updates
       - ./data:/data

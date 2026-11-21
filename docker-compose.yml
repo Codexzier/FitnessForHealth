@@ -1,0 +1,15 @@
+services:
+  fitness:
+    build: .
+    image: fitnessforhealth:latest
+    container_name: fitnessforhealth
+    restart: unless-stopped
+    environment:
+      # Port innerhalb des Containers (Standard 8095)
+      - PORT=${PORT:-8095}
+      - TZ=${TZ:-Europe/Berlin}
+    ports:
+      - "${PORT:-8095}:${PORT:-8095}"
+    volumes:
+      # Datenbank (fitness.db) und Bilder (images/) – übersteht Container-Updates
+      - ./data:/data

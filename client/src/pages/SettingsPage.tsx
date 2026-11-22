@@ -4,6 +4,7 @@ import { useAuth } from '../auth';
 import { avatarUrl } from '../components/Avatar';
 import { ImagePicker, type ImageValue } from '../components/ImagePicker';
 import { ConfirmDialog } from '../components/Modal';
+import { ESP32 } from '../target';
 import { COLOR_MODES, THEMES } from '../theme';
 import type { ActivityType, ColorMode, Profile, ThemeName } from '../types';
 
@@ -13,7 +14,16 @@ export default function SettingsPage() {
       <h1 style={{ margin: 0 }}>Einstellungen</h1>
       <ProfileSection />
       <AppearanceSection />
-      <PasswordSection />
+      {ESP32 ? (
+        <div className="card">
+          <h2>Passwort</h2>
+          <p className="muted" style={{ margin: 0 }}>
+            Bei der ESP32-Variante wird das Passwort vor dem Flashen in <code>secrets.h</code> festgelegt.
+          </p>
+        </div>
+      ) : (
+        <PasswordSection />
+      )}
       <ActivitiesSection />
     </div>
   );
@@ -48,10 +58,14 @@ function ProfileSection() {
     <form className="card" onSubmit={submit}>
       <h2>Profil</h2>
       {msg && <div className={msg.ok ? 'notice' : 'error'}>{msg.text}</div>}
-      <div className="muted small-text" style={{ marginBottom: 6 }}>
-        Profilbild (erscheint in der Benutzerauswahl)
-      </div>
-      <ImagePicker current={user!.avatar} value={image} onChange={setImage} icon="👤" urlFor={avatarUrl} />
+      {!ESP32 && (
+        <>
+          <div className="muted small-text" style={{ marginBottom: 6 }}>
+            Profilbild (erscheint in der Benutzerauswahl)
+          </div>
+          <ImagePicker current={user!.avatar} value={image} onChange={setImage} icon="👤" urlFor={avatarUrl} />
+        </>
+      )}
       <label>
         Name
         <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={120} />

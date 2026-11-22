@@ -7,6 +7,9 @@ Läuft als ein einziger Docker-Container im Heimnetz und wird im Browser auf Sma
 - **Frontend:** React + Vite + TypeScript, wird vom Backend als statische Dateien ausgeliefert
 - **Daten:** Datenbank und Bilder liegen unter `/data` im Container (per Volume nach `./data` gemappt)
 
+> **ESP32-C6-Variante:** Eine schlanke Version für einen Benutzer ohne Bilder läuft direkt auf einem
+> ESP32-C6 im WLAN, ganz ohne Server. Anleitung: [esp32/README.md](esp32/README.md).
+
 ## Schnellstart
 
 Voraussetzung: Docker mit Compose-Plugin.

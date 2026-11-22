@@ -1,6 +1,8 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth';
 import UserSelect from './pages/UserSelect';
+import EspLogin from './pages/EspLogin';
+import { ESP32 } from './target';
 import Layout from './components/Layout';
 import Overview from './pages/Overview';
 import History from './pages/History';
@@ -27,7 +29,7 @@ function Start() {
   const { user, loading } = useAuth();
   if (loading) return <div className="page muted">Lade …</div>;
   if (user) return <Navigate to="/app" replace />;
-  return <UserSelect />;
+  return ESP32 ? <EspLogin /> : <UserSelect />;
 }
 
 export default function App() {

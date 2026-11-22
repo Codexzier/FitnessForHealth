@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import { ESP32 } from '../target';
 import { ExerciseForm } from '../components/ExerciseForms';
 import { ConfirmDialog, Modal } from '../components/Modal';
 import { ReorderList, moveItem } from '../components/ReorderList';
@@ -166,15 +167,19 @@ export default function WorkoutEditor() {
               Geschätzte Dauer: ca. {formatMinutes(estimate.seconds)}
               {estimate.hasReps && ' zzgl. Wiederholungs-Übungen'} (inkl. 5-s-Countdown vor jedem Satz)
             </p>
-            <label className="check-row" style={{ margin: '14px 0 0' }}>
-              <input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} />
-              Für alle Benutzer verfügbar
-            </label>
-            <p className="muted small-text" style={{ margin: '4px 0 0 32px' }}>
-              {shared
-                ? 'Andere Benutzer sehen dieses Workout in ihrer Übersicht, können es starten und eine Kopie übernehmen. Bearbeiten kannst nur du.'
-                : 'Nur für dich sichtbar.'}
-            </p>
+            {!ESP32 && (
+              <>
+                <label className="check-row" style={{ margin: '14px 0 0' }}>
+                  <input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} />
+                  Für alle Benutzer verfügbar
+                </label>
+                <p className="muted small-text" style={{ margin: '4px 0 0 32px' }}>
+                  {shared
+                    ? 'Andere Benutzer sehen dieses Workout in ihrer Übersicht, können es starten und eine Kopie übernehmen. Bearbeiten kannst nur du.'
+                    : 'Nur für dich sichtbar.'}
+                </p>
+              </>
+            )}
           </div>
 
           <div>

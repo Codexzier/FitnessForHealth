@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { ESP32 } from '../target';
 import { readJsonFile } from './importFile';
 
 type Decision = 'overwrite' | 'copy';
@@ -43,7 +44,8 @@ export default function ImportPlans() {
     setFileName(file.name);
     setBusy(true);
     try {
-      const json = await readJsonFile(file);
+      let json = await readJsonFile(file);
+      if (ESP32) json = stripImages(json);
       const p = await api.post<Preview>('/api/import/plans/preview', { data: json });
       setData(json);
       setPreview(p);
@@ -86,6 +88,7 @@ export default function ImportPlans() {
       <p className="muted">
         Wähle eine JSON-Datei, die über „Export Workouts &amp; Stretching“ erstellt wurde. Vor dem Import siehst du eine
         Vorschau.
+        {ESP32 && ' Bilder werden bei dieser Variante nicht übernommen.'}
       </p>
       {error && <div className="error">{error}</div>}
       <label className="btn" style={{ display: 'inline-flex', marginBottom: 16 }}>
@@ -179,4 +182,13 @@ export default function ImportPlans() {
       )}
     </div>
   );
+}
+
+/** ESP32: Bilder entfernen, damit die Datei klein bleibt */
+function stripImages(json: unknown): unknown {
+  if (!json || typeof json !== 'object') return json;
+  const data = json as Record<string, unknown>;
+  const strip = (list: unknown) =>
+    Array.isArray(list) ? list.map((e) => (e && typeof e === 'object' ? { ...e, image: null } : e)) : list;
+  return { ...data, exercises: strip(data.exercises), stretchExercises: strip(data.stretchExercises) };
 }

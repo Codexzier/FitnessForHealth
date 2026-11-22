@@ -20,7 +20,14 @@ export default function ImportProgress() {
     setBusy(true);
     try {
       const json = await readJsonFile(file);
-      setPreview(await api.post('/api/import/progress/preview', { data: json }));
+      const sum = { total: 0, duplicates: 0, new: 0 };
+      for (const batch of batches(json)) {
+        const p = await api.post<typeof sum>('/api/import/progress/preview', { data: batch });
+        sum.total += p.total;
+        sum.duplicates += p.duplicates;
+        sum.new += p.new;
+      }
+      setPreview(sum);
       setData(json);
     } catch (err) {
       setError((err as Error).message);
@@ -33,7 +40,13 @@ export default function ImportProgress() {
     setBusy(true);
     setError(null);
     try {
-      setResult(await api.post('/api/import/progress', { data }));
+      const sum = { imported: 0, skipped: 0 };
+      for (const batch of batches(data)) {
+        const r = await api.post<typeof sum>('/api/import/progress', { data: batch });
+        sum.imported += r.imported;
+        sum.skipped += r.skipped;
+      }
+      setResult(sum);
       setPreview(null);
     } catch (err) {
       setError((err as Error).message);
@@ -94,4 +107,18 @@ export default function ImportProgress() {
       )}
     </div>
   );
+}
+
+const BATCH = 100;
+
+/** Teilt die Datei in Pakete zu je 100 Einträgen; jedes Paket ist für sich eine gültige Datei. */
+function batches(json: unknown): unknown[] {
+  const data = json as { executions?: unknown };
+  if (!data || typeof data !== 'object' || !Array.isArray(data.executions) || data.executions.length <= BATCH) {
+    return [json];
+  }
+  const list = data.executions;
+  const out = [];
+  for (let i = 0; i < list.length; i += BATCH) out.push({ ...data, executions: list.slice(i, i + BATCH) });
+  return out;
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
+import { useAuth } from '../auth';
 import { StretchExerciseForm } from '../components/ExerciseForms';
 import { ConfirmDialog, Modal } from '../components/Modal';
 import { ReorderList, moveItem } from '../components/ReorderList';
@@ -24,6 +25,8 @@ export default function StretchingEditor() {
   const [library, setLibrary] = useState<StretchExercise[] | null>(null);
   const [name, setName] = useState('');
   const [items, setItems] = useState<DraftItem[]>([]);
+  const [shared, setShared] = useState(false);
+  const { user } = useAuth();
   const [loaded, setLoaded] = useState(isNew);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -40,13 +43,18 @@ export default function StretchingEditor() {
       api
         .get<Stretching>(`/api/stretchings/${id}`)
         .then((s) => {
+          if (s.ownerId !== user?.id) {
+            setError(`Dieses Stretching gehört ${s.ownerName}. Übernimm es in der Übersicht mit „Kopieren“, um es zu bearbeiten.`);
+            return;
+          }
+          setShared(s.shared);
           setName(s.name);
           setItems(s.items.map((i) => ({ key: keySeq++, stretchExerciseId: i.stretchExerciseId })));
           setLoaded(true);
         })
         .catch((e) => setError(e.message));
     }
-  }, [id, isNew]);
+  }, [id, isNew]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const byId = new Map(library?.map((e) => [e.id, e]));
   const totalSec = items.reduce((s, i) => s + (byId.get(i.stretchExerciseId)?.durationSec ?? 0) + COUNTDOWN_SEC, 0);
@@ -60,7 +68,7 @@ export default function StretchingEditor() {
     e.preventDefault();
     setSaving(true);
     setError(null);
-    const body = { name, items: items.map((i) => ({ stretchExerciseId: i.stretchExerciseId })) };
+    const body = { name, shared, items: items.map((i) => ({ stretchExerciseId: i.stretchExerciseId })) };
     try {
       if (isNew) await api.post('/api/stretchings', body);
       else await api.put(`/api/stretchings/${id}`, body);
@@ -100,6 +108,15 @@ export default function StretchingEditor() {
             </label>
             <p className="muted small-text" style={{ margin: 0 }}>
               Gesamtdauer: ca. {formatMinutes(totalSec)} (inkl. 5-s-Countdown vor jeder Übung)
+            </p>
+            <label className="check-row" style={{ margin: '14px 0 0' }}>
+              <input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} />
+              Für alle Benutzer verfügbar
+            </label>
+            <p className="muted small-text" style={{ margin: '4px 0 0 32px' }}>
+              {shared
+                ? 'Andere Benutzer sehen dieses Stretching in ihrer Übersicht, können es starten und eine Kopie übernehmen. Bearbeiten kannst nur du.'
+                : 'Nur für dich sichtbar.'}
             </p>
           </div>
 

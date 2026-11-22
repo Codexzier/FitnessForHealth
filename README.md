@@ -90,6 +90,41 @@ Fortschritt als JSON-Datei exportieren und wieder importieren.
 - **Editoren:** Übungen können direkt aus der Liste ausgewählt oder neu angelegt werden. Die
   Reihenfolge ändert sich am PC per Drag & Drop (Griff ⋮⋮) oder überall mit den Pfeil-Buttons.
 
+### Teilen
+
+Im Workout- bzw. Stretching-Editor legt „Für alle Benutzer verfügbar“ fest, ob andere Benutzer die
+Einheit sehen. Sie können sie starten und mit „Kopieren“ als eigene Kopie übernehmen (inklusive
+der Übungen und Bilder). Bearbeiten kann nur der Besitzer.
+
+### Einstellungen
+
+Über das Menü → „Einstellungen“: Name ändern, Profilbild (wird in der Benutzerauswahl angezeigt),
+Farbschema (Grün ist Standard, dazu Ozean, Sonnenuntergang, Lavendel, Kirsche) und
+Hell/Dunkel/Wie System, Passwort ändern (andere angemeldete Geräte werden dabei abgemeldet) sowie
+eigene Aktivitäten (z. B. Radfahren, Schwimmen) verwalten. „Laufen“ ist für jeden Benutzer
+bereits angelegt.
+
+### Trainingsplan
+
+Über das Menü → „Trainingspläne“ oder „+“ → „Neuer Trainingsplan“:
+
+- **Name, Anzahl Wochen, Startdatum.** Genau ein Plan ist „aktiv“; sein heutiger Tag erscheint
+  oben in der Übersicht.
+- **Plan empfehlen:** Trainingstage pro Woche, Schwerpunkt (Ausgewogen, Ausdauer, Kraft,
+  Beweglichkeit) und Dauer fürs Laufen wählen. Die App verteilt Laufen, deine Workouts und
+  Stretchings gleichmäßig auf die Woche. Danach ist alles frei anpassbar.
+- **Wochenmuster:** Für jeden Wochentag beliebig viele Einträge: Aktivität (mit optionalem Ziel
+  als Dauer oder Strecke), Workout oder Stretching, jeweils fest oder „nach Wahl“. Tage ohne
+  Eintrag sind Ruhetage.
+- **Abweichungen:** Im Reiter einer Woche lässt sich jeder Tag „für diese Woche anpassen“.
+- **Am Trainingstag:** Aktivitäten werden mit „Bestätigen“ abgehakt (optional mit Dauer, Strecke
+  und Bewertung; der Eintrag erscheint im Fitness-Verlauf). Workouts und Stretchings werden mit
+  „Starten“ durchgeführt und nach dem Abschluss automatisch abgehakt. Erledigtes zeigt einen
+  grünen Haken; vergangene Tage lassen sich nachtragen, ein Haken kann rückgängig gemacht werden.
+
+Trainingspläne sind (noch) nicht Teil des JSON-Exports; die Sicherung des `data`-Ordners enthält
+sie.
+
 ### Ablauf eines Workouts
 
 Für jede Runde werden die Einträge der Reihe nach abgearbeitet, jeder Eintrag mit all seinen
@@ -164,8 +199,12 @@ cd server && npm test
 
 - `client/src/timer/engine.test.ts` – Ablauf-Logik: Reihenfolge von Runden, Sätzen, Pausen und
   Countdowns, Zeitstempel-Rechnung, Pause/Überspringen, Pieptöne
+- `client/src/plan/plan.test.ts` – Trainingsplan: Wochen/Wochentage, Abweichungen, Fortschritt,
+  Empfehlung
 - `server/src/api.test.ts` – Anmeldung, Datentrennung zwischen Benutzern, Bildverkleinerung,
   Import/Export
+- `server/src/features.test.ts` – Teilen und Kopieren, Einstellungen, Profilbild,
+  Trainingsplan-API, Migration einer bestehenden Datenbank
 
 ## Projektstruktur
 
@@ -174,11 +213,14 @@ server/src/
   app.ts          Fastify-App, Routen, Sitzungen
   db.ts           SQLite + Migrationen (PRAGMA user_version)
   repo.ts         Datenzugriff
+  planRepo.ts     Trainingspläne und eigene Aktivitäten
   schemas.ts      Validierung (zod) inkl. Import-Format
   transfer.ts     Import/Export
   images.ts       Bild-Upload, Verkleinerung (sharp → WebP, max. 800 px)
 client/src/
   timer/engine.ts Ablauf-Logik des Timers (rein, getestet)
+  plan/           Trainingsplan: Kalenderlogik und Empfehlung (rein, getestet)
+  theme.ts        Farbschema und Hell/Dunkel pro Benutzer
   pages/          Seiten (Übersicht, Editoren, Durchführung, Verlauf, Import)
   audio.ts        Pieptöne (Web Audio API)
   wakeLock.ts     Bildschirm wachhalten

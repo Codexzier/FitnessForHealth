@@ -2,8 +2,9 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import { Avatar } from '../components/Avatar';
 import { Modal } from '../components/Modal';
-import type { User } from '../types';
+import type { Profile, User } from '../types';
 
 export default function UserSelect() {
   const [users, setUsers] = useState<User[] | null>(null);
@@ -26,7 +27,7 @@ export default function UserSelect() {
       <div className="user-grid">
         {users?.map((u) => (
           <button key={u.id} className="user-card" onClick={() => setSelected(u)}>
-            <span className="avatar">{u.name.slice(0, 1).toUpperCase()}</span>
+            <Avatar name={u.name} image={u.avatar} />
             {u.name}
           </button>
         ))}
@@ -54,7 +55,7 @@ function LoginDialog({ user, onClose }: { user: User; onClose: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      setUser(await api.post<User>('/api/login', { userId: user.id, password }));
+      setUser(await api.post<Profile>('/api/login', { userId: user.id, password }));
       navigate('/app');
     } catch (err) {
       setError((err as Error).message);
@@ -108,7 +109,7 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      setUser(await api.post<User>('/api/users', { name, password }));
+      setUser(await api.post<Profile>('/api/users', { name, password }));
       navigate('/app');
     } catch (err) {
       setError((err as Error).message);

@@ -7,11 +7,18 @@ import fastifyStatic from '@fastify/static';
 import bcrypt from 'bcryptjs';
 import { openDb, type DB } from './db';
 import { ImageStore } from './images';
-import { Repo } from './repo';
+import { Repo, uniqueCopyName } from './repo';
+import { PlanRepo } from './planRepo';
 import { conflict, notFound, unauthorized, HttpError } from './errors';
 import {
+  activityTypeSchema,
+  avatarSchema,
+  completionSchema,
+  newExecutionSchema,
+  passwordSchema,
+  planSchema,
+  profileSchema,
   createUserSchema,
-  executionSchema,
   exerciseSchema,
   loginSchema,
   parse,
@@ -50,6 +57,7 @@ export async function buildApp(opts: AppOptions): Promise<{ app: FastifyInstance
   const db = openDb(opts.dataDir, opts.dbFile);
   const images = new ImageStore(path.join(opts.dataDir, 'images'));
   const repo = new Repo(db);
+  const plans = new PlanRepo(db);
 
   // Verwaiste Bilder (z. B. nach Abstürzen) beim Start aufräumen
   images.cleanup(repo.referencedImages());
@@ -91,31 +99,59 @@ export async function buildApp(opts: AppOptions): Promise<{ app: FastifyInstance
     });
   }
 
-  function sessionUser(req: FastifyRequest): { id: number; name: string } | null {
+  interface Profile {
+    id: number;
+    name: string;
+    avatar: string | null;
+    theme: string;
+    colorMode: string;
+  }
+  const PROFILE_COLS = 'u.id, u.name, u.avatar, u.theme, u.color_mode AS colorMode';
+
+  function sessionUser(req: FastifyRequest): Profile | null {
     const token = req.cookies[SESSION_COOKIE];
     if (!token) return null;
     const row = db
       .prepare(
-        `SELECT u.id, u.name FROM sessions s JOIN users u ON u.id = s.user_id
+        `SELECT ${PROFILE_COLS} FROM sessions s JOIN users u ON u.id = s.user_id
          WHERE s.token = ? AND s.expires_at > ?`,
       )
-      .get(token, Date.now()) as { id: number; name: string } | undefined;
+      .get(token, Date.now()) as Profile | undefined;
     return row ?? null;
   }
 
+  const profile = (id: number) =>
+    db.prepare(`SELECT ${PROFILE_COLS} FROM users u WHERE u.id = ?`).get(id) as Profile;
+
   app.get('/api/health', async () => ({ ok: true }));
 
-  app.get('/api/users', async () => db.prepare('SELECT id, name FROM users ORDER BY name COLLATE NOCASE').all());
+  app.get('/api/users', async () =>
+    db.prepare('SELECT id, name, avatar FROM users ORDER BY name COLLATE NOCASE').all(),
+  );
+
+  // Profilbilder sind auch ohne Anmeldung sichtbar (Benutzerauswahl)
+  app.get('/api/avatars/:name', async (req, reply) => {
+    const name = (req.params as { name: string }).name;
+    const p = images.path(name);
+    const used = db.prepare('SELECT 1 FROM users WHERE avatar = ?').get(name);
+    if (!p || !used || !fs.existsSync(p)) throw notFound('Bild nicht gefunden.');
+    reply.header('Cache-Control', 'public, max-age=31536000, immutable');
+    return reply.type('image/webp').send(fs.createReadStream(p));
+  });
 
   app.post('/api/users', async (req, reply) => {
     const body = parse(createUserSchema, req.body);
     const exists = db.prepare('SELECT 1 FROM users WHERE name = ? COLLATE NOCASE').get(body.name);
     if (exists) throw conflict('Diesen Benutzernamen gibt es bereits.');
     const hash = await bcrypt.hash(body.password, 10);
-    const r = db.prepare('INSERT INTO users (name, password_hash) VALUES (?, ?)').run(body.name, hash);
-    const id = Number(r.lastInsertRowid);
+    const id = db.transaction(() => {
+      const r = db.prepare('INSERT INTO users (name, password_hash) VALUES (?, ?)').run(body.name, hash);
+      const newId = Number(r.lastInsertRowid);
+      plans.createDefaultActivities(newId);
+      return newId;
+    })();
     createSession(reply, id);
-    return { id, name: body.name };
+    return profile(id);
   });
 
   app.post('/api/login', async (req, reply) => {
@@ -127,7 +163,7 @@ export async function buildApp(opts: AppOptions): Promise<{ app: FastifyInstance
       throw unauthorized('Das Passwort ist falsch.');
     }
     createSession(reply, user.id);
-    return { id: user.id, name: user.name };
+    return profile(user.id);
   });
 
   app.post('/api/logout', async (req, reply) => {
@@ -150,6 +186,47 @@ export async function buildApp(opts: AppOptions): Promise<{ app: FastifyInstance
       const user = sessionUser(req);
       if (!user) throw unauthorized();
       req.userId = user.id;
+    });
+
+    // Einstellungen
+    api.put('/api/me', async (req) => {
+      const body = parse(profileSchema, req.body);
+      if (body.name !== undefined) {
+        const taken = db.prepare('SELECT id FROM users WHERE name = ? COLLATE NOCASE').get(body.name) as
+          | { id: number }
+          | undefined;
+        if (taken && taken.id !== req.userId) throw conflict('Diesen Benutzernamen gibt es bereits.');
+        db.prepare('UPDATE users SET name = ? WHERE id = ?').run(body.name, req.userId);
+      }
+      if (body.theme !== undefined) db.prepare('UPDATE users SET theme = ? WHERE id = ?').run(body.theme, req.userId);
+      if (body.colorMode !== undefined) {
+        db.prepare('UPDATE users SET color_mode = ? WHERE id = ?').run(body.colorMode, req.userId);
+      }
+      return profile(req.userId);
+    });
+
+    api.put('/api/me/password', async (req, reply) => {
+      const body = parse(passwordSchema, req.body);
+      const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.userId) as { password_hash: string };
+      if (!(await bcrypt.compare(body.currentPassword, row.password_hash))) {
+        throw new HttpError(400, 'Das aktuelle Passwort ist falsch.');
+      }
+      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(await bcrypt.hash(body.newPassword, 10), req.userId);
+      // Andere Sitzungen abmelden, diese behalten
+      db.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(req.userId, req.cookies[SESSION_COOKIE]);
+      reply.status(200);
+      return { ok: true };
+    });
+
+    api.put('/api/me/avatar', async (req) => {
+      const body = parse(avatarSchema, req.body);
+      const old = profile(req.userId).avatar;
+      let avatar = old;
+      if (body.imageData) avatar = await images.saveBase64(body.imageData);
+      else if (body.removeImage) avatar = null;
+      db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(avatar, req.userId);
+      if (old && old !== avatar) images.delete(old);
+      return profile(req.userId);
     });
 
     // Bilder
@@ -231,6 +308,51 @@ export async function buildApp(opts: AppOptions): Promise<{ app: FastifyInstance
       repo.deleteWorkout(req.userId, idParam(req));
       return { ok: true };
     });
+    api.post('/api/workouts/:id/copy', async (req) => {
+      const source = repo.getWorkout(req.userId, idParam(req));
+      const newImages: string[] = [];
+      try {
+        const id = db.transaction(() => {
+          // Übungen über den Namen zuordnen, fehlende samt Bild kopieren
+          const exerciseIds = new Map<number, number>();
+          for (const item of source.items) {
+            if (exerciseIds.has(item.exerciseId)) continue;
+            const own = repo.findExerciseByName(req.userId, item.exerciseName);
+            if (own) {
+              exerciseIds.set(item.exerciseId, own.id);
+            } else {
+              const image = images.copy(item.exerciseImage);
+              if (image) newImages.push(image);
+              exerciseIds.set(
+                item.exerciseId,
+                repo.insertExercise(req.userId, { name: item.exerciseName, description: item.exerciseDescription, image }),
+              );
+            }
+          }
+          const name =
+            repo.findWorkoutIdByName(req.userId, source.name) === undefined
+              ? source.name
+              : uniqueCopyName(source.name, (n) => repo.findWorkoutIdByName(req.userId, n) !== undefined);
+          return repo.saveWorkout(req.userId, null, {
+            name,
+            shared: false,
+            rounds: source.rounds,
+            restBetweenExercises: source.restBetweenExercises,
+            restBetweenRounds: source.restBetweenRounds,
+            items: source.items.map((i) => ({
+              exerciseId: exerciseIds.get(i.exerciseId)!,
+              type: i.type,
+              value: i.value,
+              sets: i.sets,
+            })),
+          });
+        })();
+        return repo.getWorkout(req.userId, id);
+      } catch (err) {
+        newImages.forEach((i) => images.delete(i));
+        throw err;
+      }
+    });
 
     // Stretchings
     api.get('/api/stretchings', async (req) => repo.listStretchings(req.userId));
@@ -247,16 +369,119 @@ export async function buildApp(opts: AppOptions): Promise<{ app: FastifyInstance
       repo.deleteStretching(req.userId, idParam(req));
       return { ok: true };
     });
+    api.post('/api/stretchings/:id/copy', async (req) => {
+      const source = repo.getStretching(req.userId, idParam(req));
+      const newImages: string[] = [];
+      try {
+        const id = db.transaction(() => {
+          const ids = new Map<number, number>();
+          for (const item of source.items) {
+            if (ids.has(item.stretchExerciseId)) continue;
+            const own = repo.findStretchExerciseByName(req.userId, item.name);
+            if (own) {
+              ids.set(item.stretchExerciseId, own.id);
+            } else {
+              const image = images.copy(item.image);
+              if (image) newImages.push(image);
+              ids.set(
+                item.stretchExerciseId,
+                repo.insertStretchExercise(req.userId, { name: item.name, durationSec: item.durationSec, image }),
+              );
+            }
+          }
+          const name =
+            repo.findStretchingIdByName(req.userId, source.name) === undefined
+              ? source.name
+              : uniqueCopyName(source.name, (n) => repo.findStretchingIdByName(req.userId, n) !== undefined);
+          return repo.saveStretching(req.userId, null, {
+            name,
+            shared: false,
+            items: source.items.map((i) => ({ stretchExerciseId: ids.get(i.stretchExerciseId)! })),
+          });
+        })();
+        return repo.getStretching(req.userId, id);
+      } catch (err) {
+        newImages.forEach((i) => images.delete(i));
+        throw err;
+      }
+    });
 
     // Verlauf
     api.get('/api/executions', async (req) => repo.listExecutions(req.userId));
     api.post('/api/executions', async (req) => {
-      const body = parse(executionSchema, req.body);
-      return { id: repo.insertExecution(req.userId, body) };
+      const { plan, ...body } = parse(newExecutionSchema, req.body);
+      // Planeintrag vorab prüfen, damit nichts halb gespeichert wird
+      const entry = plan ? plans.entryForDate(req.userId, plan.planId, plan.entryId, plan.date) : null;
+      return db.transaction(() => {
+        const id = repo.insertExecution(req.userId, body);
+        if (plan && entry && body.status === 'completed' && entry.kind === body.kind) {
+          plans.addCompletion(plan.planId, plan.entryId, plan.date, id);
+        }
+        return { id };
+      })();
     });
     api.delete('/api/executions/:id', async (req) => {
       repo.deleteExecution(req.userId, idParam(req));
       return { ok: true };
+    });
+
+    // Eigene Aktivitäten (Laufen, Radfahren, …)
+    api.get('/api/activity-types', async (req) => plans.listActivityTypes(req.userId));
+    api.post('/api/activity-types', async (req) =>
+      plans.createActivityType(req.userId, parse(activityTypeSchema, req.body)),
+    );
+    api.put('/api/activity-types/:id', async (req) =>
+      plans.updateActivityType(req.userId, idParam(req), parse(activityTypeSchema, req.body)),
+    );
+    api.delete('/api/activity-types/:id', async (req) => {
+      plans.deleteActivityType(req.userId, idParam(req));
+      return { ok: true };
+    });
+
+    // Trainingspläne
+    api.get('/api/plans', async (req) => plans.listPlans(req.userId));
+    api.get('/api/plans/:id', async (req) => plans.getPlan(req.userId, idParam(req)));
+    api.post('/api/plans', async (req) => {
+      const id = plans.savePlan(req.userId, null, parse(planSchema, req.body));
+      return plans.getPlan(req.userId, id);
+    });
+    api.put('/api/plans/:id', async (req) => {
+      const id = plans.savePlan(req.userId, idParam(req), parse(planSchema, req.body));
+      return plans.getPlan(req.userId, id);
+    });
+    api.delete('/api/plans/:id', async (req) => {
+      plans.deletePlan(req.userId, idParam(req));
+      return { ok: true };
+    });
+
+    /** Aktivität (z. B. Laufen) bestätigen: legt einen Verlaufseintrag an und hakt den Tag ab. */
+    api.post('/api/plans/:id/completions', async (req) => {
+      const planId = idParam(req);
+      const body = parse(completionSchema, req.body);
+      const entry = plans.entryForDate(req.userId, planId, body.entryId, body.date);
+      if (entry.kind !== 'activity') throw new HttpError(400, 'Workouts und Stretchings werden über „Starten“ erledigt.');
+      // Startzeit: vom Browser (heute) oder 12:00 Uhr bei nachgetragenen Tagen
+      const startedAt = body.startedAt ?? `${body.date}T12:00:00.000Z`;
+      db.transaction(() => {
+        const executionId = repo.insertExecution(req.userId, {
+          kind: 'activity',
+          name: entry.activityName ?? 'Aktivität',
+          startedAt,
+          durationSec: Math.round((body.durationMin ?? 0) * 60),
+          distanceKm: body.distanceKm ?? null,
+          rating: body.rating,
+          status: 'completed',
+        });
+        plans.addCompletion(planId, body.entryId, body.date, executionId);
+      })();
+      return plans.getPlan(req.userId, planId);
+    });
+
+    api.delete('/api/plans/:id/completions/:entryId/:date', async (req) => {
+      const planId = idParam(req);
+      const { entryId, date } = req.params as { entryId: string; date: string };
+      plans.removeCompletion(req.userId, planId, Number(entryId), date);
+      return plans.getPlan(req.userId, planId);
     });
 
     // Export

@@ -26,6 +26,7 @@ export interface WorkoutItemInput {
 
 export interface WorkoutInput {
   name: string;
+  shared: boolean;
   rounds: number;
   restBetweenExercises: number;
   restBetweenRounds: number;
@@ -39,13 +40,19 @@ export interface WorkoutItem extends WorkoutItemInput {
   exerciseImage: string | null;
 }
 
-export interface Workout extends Omit<WorkoutInput, 'items'> {
+export interface Owner {
+  ownerId: number;
+  ownerName: string;
+}
+
+export interface Workout extends Omit<WorkoutInput, 'items'>, Owner {
   id: number;
   items: WorkoutItem[];
 }
 
 export interface StretchingInput {
   name: string;
+  shared: boolean;
   items: { stretchExerciseId: number }[];
 }
 
@@ -57,19 +64,21 @@ export interface StretchingItem {
   image: string | null;
 }
 
-export interface Stretching {
+export interface Stretching extends Owner {
   id: number;
   name: string;
+  shared: boolean;
   items: StretchingItem[];
 }
 
 export type Rating = 'bad' | 'medium' | 'good';
 
 export interface ExecutionInput {
-  kind: 'workout' | 'stretching';
+  kind: 'workout' | 'stretching' | 'activity';
   name: string;
   startedAt: string;
   durationSec: number;
+  distanceKm?: number | null;
   rating: Rating | null;
   status: 'completed' | 'aborted';
 }
@@ -210,25 +219,31 @@ export class Repo {
       .all(workoutId) as WorkoutItem[];
   }
 
-  listWorkouts(userId: number): Workout[] {
+  private static WORKOUT_COLS = `w.id, w.name, w.rounds, w.rest_exercise_sec AS restBetweenExercises,
+    w.rest_round_sec AS restBetweenRounds, w.shared, w.user_id AS ownerId, u.name AS ownerName`;
+
+  /** Eigene Workouts und die von anderen Benutzern für alle freigegebenen. */
+  listWorkouts(userId: number, onlyOwn = false): Workout[] {
     const rows = this.db
       .prepare(
-        `SELECT id, name, rounds, rest_exercise_sec AS restBetweenExercises, rest_round_sec AS restBetweenRounds
-         FROM workouts WHERE user_id = ? ORDER BY name COLLATE NOCASE`,
+        `SELECT ${Repo.WORKOUT_COLS} FROM workouts w JOIN users u ON u.id = w.user_id
+         WHERE w.user_id = ? ${onlyOwn ? '' : 'OR w.shared = 1'}
+         ORDER BY (w.user_id = ?) DESC, w.name COLLATE NOCASE`,
       )
-      .all(userId) as Omit<Workout, 'items'>[];
-    return rows.map((w) => ({ ...w, items: this.workoutItems(w.id) }));
+      .all(userId, userId) as (Omit<Workout, 'items' | 'shared'> & { shared: number })[];
+    return rows.map((w) => ({ ...w, shared: !!w.shared, items: this.workoutItems(w.id) }));
   }
 
-  getWorkout(userId: number, id: number): Workout {
+  /** Liefert ein eigenes oder ein freigegebenes Workout. Mit ownOnly nur eigene (zum Bearbeiten). */
+  getWorkout(userId: number, id: number, ownOnly = false): Workout {
     const w = this.db
       .prepare(
-        `SELECT id, name, rounds, rest_exercise_sec AS restBetweenExercises, rest_round_sec AS restBetweenRounds
-         FROM workouts WHERE user_id = ? AND id = ?`,
+        `SELECT ${Repo.WORKOUT_COLS} FROM workouts w JOIN users u ON u.id = w.user_id
+         WHERE w.id = ? AND (w.user_id = ? ${ownOnly ? '' : 'OR w.shared = 1'})`,
       )
-      .get(userId, id) as Omit<Workout, 'items'> | undefined;
+      .get(id, userId) as (Omit<Workout, 'items' | 'shared'> & { shared: number }) | undefined;
     if (!w) throw notFound('Workout nicht gefunden.');
-    return { ...w, items: this.workoutItems(w.id) };
+    return { ...w, shared: !!w.shared, items: this.workoutItems(w.id) };
   }
 
   findWorkoutIdByName(userId: number, name: string): number | undefined {
@@ -249,17 +264,26 @@ export class Repo {
       if (id === null) {
         const r = this.db
           .prepare(
-            'INSERT INTO workouts (user_id, name, rounds, rest_exercise_sec, rest_round_sec) VALUES (?, ?, ?, ?, ?)',
+            `INSERT INTO workouts (user_id, name, rounds, rest_exercise_sec, rest_round_sec, shared)
+             VALUES (?, ?, ?, ?, ?, ?)`,
           )
-          .run(userId, input.name, input.rounds, input.restBetweenExercises, input.restBetweenRounds);
+          .run(userId, input.name, input.rounds, input.restBetweenExercises, input.restBetweenRounds, input.shared ? 1 : 0);
         workoutId = Number(r.lastInsertRowid);
       } else {
         const r = this.db
           .prepare(
-            `UPDATE workouts SET name = ?, rounds = ?, rest_exercise_sec = ?, rest_round_sec = ?
+            `UPDATE workouts SET name = ?, rounds = ?, rest_exercise_sec = ?, rest_round_sec = ?, shared = ?
              WHERE user_id = ? AND id = ?`,
           )
-          .run(input.name, input.rounds, input.restBetweenExercises, input.restBetweenRounds, userId, id);
+          .run(
+            input.name,
+            input.rounds,
+            input.restBetweenExercises,
+            input.restBetweenRounds,
+            input.shared ? 1 : 0,
+            userId,
+            id,
+          );
         if (r.changes === 0) throw notFound('Workout nicht gefunden.');
         workoutId = id;
         this.db.prepare('DELETE FROM workout_items WHERE workout_id = ?').run(workoutId);
@@ -289,19 +313,28 @@ export class Repo {
       .all(stretchingId) as StretchingItem[];
   }
 
-  listStretchings(userId: number): Stretching[] {
+  private static STRETCHING_COLS = 's.id, s.name, s.shared, s.user_id AS ownerId, u.name AS ownerName';
+
+  listStretchings(userId: number, onlyOwn = false): Stretching[] {
     const rows = this.db
-      .prepare('SELECT id, name FROM stretchings WHERE user_id = ? ORDER BY name COLLATE NOCASE')
-      .all(userId) as Omit<Stretching, 'items'>[];
-    return rows.map((s) => ({ ...s, items: this.stretchingItems(s.id) }));
+      .prepare(
+        `SELECT ${Repo.STRETCHING_COLS} FROM stretchings s JOIN users u ON u.id = s.user_id
+         WHERE s.user_id = ? ${onlyOwn ? '' : 'OR s.shared = 1'}
+         ORDER BY (s.user_id = ?) DESC, s.name COLLATE NOCASE`,
+      )
+      .all(userId, userId) as (Omit<Stretching, 'items' | 'shared'> & { shared: number })[];
+    return rows.map((s) => ({ ...s, shared: !!s.shared, items: this.stretchingItems(s.id) }));
   }
 
-  getStretching(userId: number, id: number): Stretching {
-    const s = this.db.prepare('SELECT id, name FROM stretchings WHERE user_id = ? AND id = ?').get(userId, id) as
-      | Omit<Stretching, 'items'>
-      | undefined;
+  getStretching(userId: number, id: number, ownOnly = false): Stretching {
+    const s = this.db
+      .prepare(
+        `SELECT ${Repo.STRETCHING_COLS} FROM stretchings s JOIN users u ON u.id = s.user_id
+         WHERE s.id = ? AND (s.user_id = ? ${ownOnly ? '' : 'OR s.shared = 1'})`,
+      )
+      .get(id, userId) as (Omit<Stretching, 'items' | 'shared'> & { shared: number }) | undefined;
     if (!s) throw notFound('Stretching nicht gefunden.');
-    return { ...s, items: this.stretchingItems(s.id) };
+    return { ...s, shared: !!s.shared, items: this.stretchingItems(s.id) };
   }
 
   findStretchingIdByName(userId: number, name: string): number | undefined {
@@ -321,12 +354,14 @@ export class Repo {
       }
       let stretchingId: number;
       if (id === null) {
-        const r = this.db.prepare('INSERT INTO stretchings (user_id, name) VALUES (?, ?)').run(userId, input.name);
+        const r = this.db
+          .prepare('INSERT INTO stretchings (user_id, name, shared) VALUES (?, ?, ?)')
+          .run(userId, input.name, input.shared ? 1 : 0);
         stretchingId = Number(r.lastInsertRowid);
       } else {
         const r = this.db
-          .prepare('UPDATE stretchings SET name = ? WHERE user_id = ? AND id = ?')
-          .run(input.name, userId, id);
+          .prepare('UPDATE stretchings SET name = ?, shared = ? WHERE user_id = ? AND id = ?')
+          .run(input.name, input.shared ? 1 : 0, userId, id);
         if (r.changes === 0) throw notFound('Stretching nicht gefunden.');
         stretchingId = id;
         this.db.prepare('DELETE FROM stretching_items WHERE stretching_id = ?').run(stretchingId);
@@ -349,7 +384,8 @@ export class Repo {
   listExecutions(userId: number): Execution[] {
     return this.db
       .prepare(
-        `SELECT id, kind, name, started_at AS startedAt, duration_sec AS durationSec, rating, status
+        `SELECT id, kind, name, started_at AS startedAt, duration_sec AS durationSec, distance_km AS distanceKm,
+                rating, status
          FROM executions WHERE user_id = ? ORDER BY started_at DESC, id DESC`,
       )
       .all(userId) as Execution[];
@@ -364,10 +400,19 @@ export class Repo {
   insertExecution(userId: number, e: ExecutionInput): number {
     const r = this.db
       .prepare(
-        `INSERT INTO executions (user_id, kind, name, started_at, duration_sec, rating, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO executions (user_id, kind, name, started_at, duration_sec, distance_km, rating, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(userId, e.kind, e.name, e.startedAt, e.durationSec, e.status === 'aborted' ? null : e.rating, e.status);
+      .run(
+        userId,
+        e.kind,
+        e.name,
+        e.startedAt,
+        e.durationSec,
+        e.distanceKm ?? null,
+        e.status === 'aborted' ? null : e.rating,
+        e.status,
+      );
     return Number(r.lastInsertRowid);
   }
 
@@ -382,7 +427,8 @@ export class Repo {
     const rows = this.db
       .prepare(
         `SELECT image FROM exercises WHERE image IS NOT NULL
-         UNION SELECT image FROM stretch_exercises WHERE image IS NOT NULL`,
+         UNION SELECT image FROM stretch_exercises WHERE image IS NOT NULL
+         UNION SELECT avatar FROM users WHERE avatar IS NOT NULL`,
       )
       .all() as { image: string }[];
     return new Set(rows.map((r) => r.image));

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { beepFinish, beepStart, beepTick, unlockAudio } from '../audio';
 import { ConfirmDialog } from '../components/Modal';
@@ -73,6 +73,11 @@ export default function RunPage() {
 
 function Runner({ data }: { data: Loaded }) {
   const navigate = useNavigate();
+  // Start aus dem Trainingsplan: Eintrag wird nach dem Abschluss abgehakt
+  const [params] = useSearchParams();
+  const planLink = params.get('plan')
+    ? { planId: Number(params.get('plan')), entryId: Number(params.get('entry')), date: params.get('date') ?? '' }
+    : undefined;
   const { steps, title, kind } = data;
   const [run, setRun] = useState<RunState | null>(null);
   const runRef = useRef<RunState | null>(null);
@@ -176,6 +181,7 @@ function Runner({ data }: { data: Loaded }) {
         durationSec: Math.round(activeMs(r, Date.now()) / 1000),
         rating,
         status,
+        plan: status === 'completed' ? planLink : undefined,
       });
       wake.current.disable();
       navigate('/app');

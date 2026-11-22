@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
+import { useAuth } from '../auth';
 import { ExerciseForm } from '../components/ExerciseForms';
 import { ConfirmDialog, Modal } from '../components/Modal';
 import { ReorderList, moveItem } from '../components/ReorderList';
@@ -30,6 +31,8 @@ export default function WorkoutEditor() {
   const [restEx, setRestEx] = useState('15');
   const [restRound, setRestRound] = useState('60');
   const [items, setItems] = useState<DraftItem[]>([]);
+  const [shared, setShared] = useState(false);
+  const { user } = useAuth();
   const [loaded, setLoaded] = useState(isNew);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -46,6 +49,11 @@ export default function WorkoutEditor() {
       api
         .get<Workout>(`/api/workouts/${id}`)
         .then((w) => {
+          if (w.ownerId !== user?.id) {
+            setError(`Dieses Workout gehört ${w.ownerName}. Übernimm es in der Übersicht mit „Kopieren“, um es zu bearbeiten.`);
+            return;
+          }
+          setShared(w.shared);
           setName(w.name);
           setRounds(String(w.rounds));
           setRestEx(String(w.restBetweenExercises));
@@ -63,7 +71,7 @@ export default function WorkoutEditor() {
         })
         .catch((e) => setError(e.message));
     }
-  }, [id, isNew]);
+  }, [id, isNew]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const exById = new Map(exercises?.map((e) => [e.id, e]));
 
@@ -77,6 +85,7 @@ export default function WorkoutEditor() {
 
   const payload = () => ({
     name,
+    shared,
     rounds: Number(rounds),
     restBetweenExercises: Number(restEx || 0),
     restBetweenRounds: Number(restRound || 0),
@@ -156,6 +165,15 @@ export default function WorkoutEditor() {
             <p className="muted small-text" style={{ margin: '10px 0 0' }}>
               Geschätzte Dauer: ca. {formatMinutes(estimate.seconds)}
               {estimate.hasReps && ' zzgl. Wiederholungs-Übungen'} (inkl. 5-s-Countdown vor jedem Satz)
+            </p>
+            <label className="check-row" style={{ margin: '14px 0 0' }}>
+              <input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} />
+              Für alle Benutzer verfügbar
+            </label>
+            <p className="muted small-text" style={{ margin: '4px 0 0 32px' }}>
+              {shared
+                ? 'Andere Benutzer sehen dieses Workout in ihrer Übersicht, können es starten und eine Kopie übernehmen. Bearbeiten kannst nur du.'
+                : 'Nur für dich sichtbar.'}
             </p>
           </div>
 

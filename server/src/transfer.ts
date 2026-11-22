@@ -11,8 +11,8 @@ import {
 } from './schemas';
 
 export function exportPlans(repo: Repo, images: ImageStore, userId: number) {
-  const workouts = repo.listWorkouts(userId);
-  const stretchings = repo.listStretchings(userId);
+  const workouts = repo.listWorkouts(userId, true);
+  const stretchings = repo.listStretchings(userId, true);
   return {
     format: PLANS_FORMAT,
     version: EXPORT_VERSION,
@@ -150,6 +150,7 @@ export async function importPlans(
               : w.name;
         repo.saveWorkout(userId, overwrite ? existingId! : null, {
           name,
+          shared: overwrite ? repo.getWorkout(userId, existingId!).shared : false,
           rounds: w.rounds,
           restBetweenExercises: w.restBetweenExercises,
           restBetweenRounds: w.restBetweenRounds,
@@ -169,6 +170,7 @@ export async function importPlans(
               : s.name;
         repo.saveStretching(userId, overwrite ? existingId! : null, {
           name,
+          shared: overwrite ? repo.getStretching(userId, existingId!).shared : false,
           items: s.items.map((k) => ({ stretchExerciseId: seIds.get(k)! })),
         });
         overwrite ? result.overwritten++ : result.created++;

@@ -11,6 +11,10 @@ import StretchingEditor from './pages/StretchingEditor';
 import RunPage from './pages/RunPage';
 import ImportPlans from './pages/ImportPlans';
 import ImportProgress from './pages/ImportProgress';
+import SettingsPage from './pages/SettingsPage';
+import PlansPage from './pages/PlansPage';
+import PlanEditor from './pages/PlanEditor';
+import PlanView from './pages/PlanView';
 
 function Protected({ children }: { children: JSX.Element }) {
   const { user, loading } = useAuth();
@@ -55,6 +59,10 @@ export default function App() {
           <Route path="stretching/:id" element={<StretchingEditor />} />
           <Route path="import/plaene" element={<ImportPlans />} />
           <Route path="import/fortschritt" element={<ImportProgress />} />
+          <Route path="einstellungen" element={<SettingsPage />} />
+          <Route path="plaene" element={<PlansPage />} />
+          <Route path="plan/:id" element={<PlanEditor />} />
+          <Route path="plan/:id/ansicht" element={<PlanView />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

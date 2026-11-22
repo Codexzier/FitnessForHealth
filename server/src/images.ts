@@ -32,6 +32,15 @@ export class ImageStore {
     return name;
   }
 
+  /** Legt eine Kopie einer Bilddatei an (z. B. beim Übernehmen eines geteilten Workouts). */
+  copy(name: string | null): string | null {
+    const src = name ? this.path(name) : null;
+    if (!src || !fs.existsSync(src)) return null;
+    const target = `${randomUUID()}.webp`;
+    fs.copyFileSync(src, path.join(this.dir, target));
+    return target;
+  }
+
   path(name: string): string | null {
     if (!IMAGE_NAME_RE.test(name)) return null;
     return path.join(this.dir, name);

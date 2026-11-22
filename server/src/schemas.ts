@@ -35,6 +35,7 @@ export const stretchExerciseSchema = z.object({
 
 export const workoutSchema = z.object({
   name,
+  shared: z.boolean().default(false),
   rounds: z.number().int().min(1, 'Mindestens eine Runde.').max(100),
   restBetweenExercises: seconds('Die Pause zwischen Übungen'),
   restBetweenRounds: seconds('Die Pause zwischen Runden'),
@@ -52,6 +53,7 @@ export const workoutSchema = z.object({
 
 export const stretchingSchema = z.object({
   name,
+  shared: z.boolean().default(false),
   items: z.array(z.object({ stretchExerciseId: z.number().int() })).max(200),
 });
 
@@ -59,12 +61,79 @@ const rating = z.enum(['bad', 'medium', 'good']).nullable();
 const isoDate = z.string().refine((s) => !Number.isNaN(Date.parse(s)), 'Ungültiges Datum.');
 
 export const executionSchema = z.object({
-  kind: z.enum(['workout', 'stretching']),
+  kind: z.enum(['workout', 'stretching', 'activity']),
   name,
   startedAt: isoDate,
   durationSec: z.number().int().min(0),
+  distanceKm: z.number().min(0).max(10000).nullable().optional(),
   rating,
   status: z.enum(['completed', 'aborted']),
+});
+
+const planDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Ungültiges Datum.');
+
+/** Ausführung, optional verknüpft mit einem Trainingsplan-Eintrag (wird dann abgehakt). */
+export const newExecutionSchema = executionSchema.extend({
+  plan: z.object({ planId: z.number().int(), entryId: z.number().int(), date: planDate }).optional(),
+});
+
+// ---------- Einstellungen ----------
+
+export const THEMES = ['standard', 'ozean', 'sonnenuntergang', 'lavendel', 'kirsche'] as const;
+
+export const profileSchema = z.object({
+  name: name.optional(),
+  theme: z.enum(THEMES).optional(),
+  colorMode: z.enum(['system', 'light', 'dark']).optional(),
+});
+
+export const passwordSchema = z.object({
+  currentPassword: z.string().max(200),
+  newPassword: createUserSchema.shape.password,
+});
+
+export const avatarSchema = z.object({ imageData: z.string().optional(), removeImage: z.boolean().optional() });
+
+// ---------- Trainingspläne ----------
+
+export const activityTypeSchema = z.object({
+  name,
+  icon: z.string().trim().min(1).max(16).default('🏃'),
+});
+
+export const planSchema = z.object({
+  name,
+  weeks: z.number().int().min(1, 'Mindestens eine Woche.').max(104, 'Höchstens 104 Wochen.'),
+  startDate: planDate,
+  active: z.boolean().default(false),
+  entries: z
+    .array(
+      z.object({
+        id: z.number().int().optional(),
+        week: z.number().int().min(0).max(104),
+        weekday: z.number().int().min(1).max(7),
+        kind: z.enum(['workout', 'stretching', 'activity']),
+        workoutId: z.number().int().nullable().default(null),
+        stretchingId: z.number().int().nullable().default(null),
+        activityTypeId: z.number().int().nullable().default(null),
+        targetType: z.enum(['duration', 'distance']).nullable().default(null),
+        targetValue: z.number().min(0).max(10000).nullable().default(null),
+      }),
+    )
+    .max(2000),
+  overrides: z
+    .array(z.object({ week: z.number().int().min(1).max(104), weekday: z.number().int().min(1).max(7) }))
+    .max(800)
+    .default([]),
+});
+
+export const completionSchema = z.object({
+  entryId: z.number().int(),
+  date: planDate,
+  startedAt: isoDate.optional(),
+  durationMin: z.number().min(0).max(24 * 60).nullable().optional(),
+  distanceKm: z.number().min(0).max(10000).nullable().optional(),
+  rating,
 });
 
 // ---------- Export-/Importformat ----------

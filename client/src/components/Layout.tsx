@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
+import { Avatar } from './Avatar';
 
 export default function Layout() {
   const { user, logout } = useAuth();
@@ -49,6 +50,7 @@ export default function Layout() {
           FitnessForHealth
         </div>
         <span className="user">{user?.name}</span>
+        {user && <Avatar name={user.name} image={user.avatar} size="sm" />}
         <div ref={plusRef} style={{ position: 'relative' }}>
           <button className="icon primary" aria-label="Neu anlegen" onClick={() => setPlusOpen((o) => !o)}>
             +
@@ -57,6 +59,7 @@ export default function Layout() {
             <div className="popover" role="menu">
               <button onClick={() => go('/app/workout/neu')}>🏋️ Neues Workout</button>
               <button onClick={() => go('/app/stretching/neu')}>🧘 Neues Stretching</button>
+              <button onClick={() => go('/app/plan/neu')}>📅 Neuer Trainingsplan</button>
             </div>
           )}
         </div>
@@ -68,6 +71,7 @@ export default function Layout() {
           <nav className="drawer" aria-label="Hauptmenü">
             <div className="drawer-head">Angemeldet als {user?.name}</div>
             <button onClick={() => go('/app')}>🏠 Übersicht</button>
+            <button onClick={() => go('/app/plaene')}>📅 Trainingspläne</button>
             <button onClick={() => go('/app/verlauf')}>📈 Fitness-Verlauf</button>
             <hr />
             <button onClick={() => go('/app/uebungen')}>🏋️ Übungen verwalten</button>
@@ -78,6 +82,7 @@ export default function Layout() {
             <button onClick={() => go('/app/import/plaene')}>⬆️ Import Workouts &amp; Stretching</button>
             <button onClick={() => go('/app/import/fortschritt')}>⬆️ Import Fortschritt</button>
             <hr />
+            <button onClick={() => go('/app/einstellungen')}>⚙️ Einstellungen</button>
             <button
               onClick={async () => {
                 await logout();

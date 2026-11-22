@@ -91,6 +91,86 @@ const migrations: string[] = [
   );
   CREATE INDEX idx_executions_user_started ON executions(user_id, started_at);
   `,
+  // 2: Profil/Theme, Teilen, eigene Aktivitäten, Trainingspläne
+  `
+  ALTER TABLE users ADD COLUMN avatar TEXT;
+  ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT 'standard';
+  ALTER TABLE users ADD COLUMN color_mode TEXT NOT NULL DEFAULT 'system';
+
+  ALTER TABLE workouts ADD COLUMN shared INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE stretchings ADD COLUMN shared INTEGER NOT NULL DEFAULT 0;
+
+  -- Verlauf: neuer Typ „activity“ (Laufen & eigene Aktivitäten) und Strecke
+  CREATE TABLE executions_new (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('workout', 'stretching', 'activity')),
+    name TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    duration_sec INTEGER NOT NULL,
+    distance_km REAL,
+    rating TEXT CHECK (rating IN ('bad', 'medium', 'good')),
+    status TEXT NOT NULL CHECK (status IN ('completed', 'aborted'))
+  );
+  INSERT INTO executions_new (id, user_id, kind, name, started_at, duration_sec, rating, status)
+    SELECT id, user_id, kind, name, started_at, duration_sec, rating, status FROM executions;
+  DROP TABLE executions;
+  ALTER TABLE executions_new RENAME TO executions;
+  CREATE INDEX idx_executions_user_started ON executions(user_id, started_at);
+
+  CREATE TABLE activity_types (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    icon TEXT NOT NULL DEFAULT '🏃'
+  );
+  CREATE INDEX idx_activity_types_user ON activity_types(user_id);
+  INSERT INTO activity_types (user_id, name, icon) SELECT id, 'Laufen', '🏃' FROM users;
+
+  CREATE TABLE training_plans (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    weeks INTEGER NOT NULL,
+    start_date TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX idx_training_plans_user ON training_plans(user_id);
+
+  -- week = 0: Wochenmuster, week >= 1: Abweichung für genau diese Woche
+  CREATE TABLE plan_entries (
+    id INTEGER PRIMARY KEY,
+    plan_id INTEGER NOT NULL REFERENCES training_plans(id) ON DELETE CASCADE,
+    week INTEGER NOT NULL DEFAULT 0,
+    weekday INTEGER NOT NULL CHECK (weekday BETWEEN 1 AND 7),
+    position INTEGER NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('workout', 'stretching', 'activity')),
+    workout_id INTEGER REFERENCES workouts(id) ON DELETE SET NULL,
+    stretching_id INTEGER REFERENCES stretchings(id) ON DELETE SET NULL,
+    activity_type_id INTEGER REFERENCES activity_types(id) ON DELETE RESTRICT,
+    target_type TEXT CHECK (target_type IN ('duration', 'distance')),
+    target_value REAL
+  );
+  CREATE INDEX idx_plan_entries_plan ON plan_entries(plan_id);
+
+  -- Tage einzelner Wochen, die vom Muster abweichen (auch leer = Ruhetag)
+  CREATE TABLE plan_overrides (
+    plan_id INTEGER NOT NULL REFERENCES training_plans(id) ON DELETE CASCADE,
+    week INTEGER NOT NULL,
+    weekday INTEGER NOT NULL,
+    PRIMARY KEY (plan_id, week, weekday)
+  );
+
+  CREATE TABLE plan_completions (
+    id INTEGER PRIMARY KEY,
+    plan_id INTEGER NOT NULL REFERENCES training_plans(id) ON DELETE CASCADE,
+    entry_id INTEGER NOT NULL REFERENCES plan_entries(id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    execution_id INTEGER REFERENCES executions(id) ON DELETE SET NULL,
+    UNIQUE (entry_id, date)
+  );
+  CREATE INDEX idx_plan_completions_plan ON plan_completions(plan_id);
+  `,
 ];
 
 export function openDb(dataDir: string, fileName = 'fitness.db'): DB {
@@ -102,9 +182,10 @@ export function openDb(dataDir: string, fileName = 'fitness.db'): DB {
   return db;
 }
 
-export function migrate(db: DB): void {
+/** Führt alle offenen Migrationen aus (oder nur bis `upTo`, für Tests). */
+export function migrate(db: DB, upTo = migrations.length): void {
   const current = db.pragma('user_version', { simple: true }) as number;
-  for (let i = current; i < migrations.length; i++) {
+  for (let i = current; i < upTo; i++) {
     db.transaction(() => {
       db.exec(migrations[i]);
       db.pragma(`user_version = ${i + 1}`);

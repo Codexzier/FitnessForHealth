@@ -41,15 +41,17 @@ export function ImagePicker({
   value,
   onChange,
   icon = '🏋️',
+  urlFor = imageUrl,
 }: {
   current: string | null;
   value: ImageValue;
   onChange: (v: ImageValue) => void;
   icon?: string;
+  urlFor?: (name: string | null) => string | null;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
-  const shown = value.imageData ?? (value.removeImage ? null : imageUrl(current));
+  const shown = value.imageData ?? (value.removeImage ? null : urlFor(current));
 
   return (
     <div className="image-picker">

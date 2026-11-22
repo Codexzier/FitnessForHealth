@@ -39,10 +39,12 @@ export default function History() {
             </div>
             <div className="li-main">
               <div className="li-title">
-                {e.kind === 'workout' ? '🏋️' : '🧘'} {e.name}
+                {e.kind === 'workout' ? '🏋️' : e.kind === 'stretching' ? '🧘' : '🏃'} {e.name}
               </div>
               <div className="li-sub">
-                {e.kind === 'workout' ? 'Workout' : 'Stretching'} · Dauer {formatDuration(e.durationSec)}
+                {e.kind === 'workout' ? 'Workout' : e.kind === 'stretching' ? 'Stretching' : 'Aktivität'}
+                {e.durationSec > 0 && ` · Dauer ${formatDuration(e.durationSec)}`}
+                {e.distanceKm != null && ` · ${e.distanceKm.toLocaleString('de-DE')} km`}
               </div>
             </div>
             {e.status === 'aborted' ? (

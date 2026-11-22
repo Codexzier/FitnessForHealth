@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { useAuth } from '../auth';
+import { TodayCard } from '../components/TodayCard';
 import { Thumb } from '../components/Thumb';
 import { formatMinutes } from '../format';
 import { buildStretchingSteps, buildWorkoutSteps, estimateDuration } from '../timer/engine';
@@ -12,6 +14,42 @@ export default function Overview() {
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
   const [stretchings, setStretchings] = useState<Stretching[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
+  const [copying, setCopying] = useState<string | null>(null);
+
+  async function copy(kind: 'workouts' | 'stretchings', id: number) {
+    setCopying(`${kind}-${id}`);
+    try {
+      const created = await api.post<{ id: number }>(`/api/${kind}/${id}/copy`);
+      navigate(`/app/${kind === 'workouts' ? 'workout' : 'stretching'}/${created.id}`);
+    } catch (err) {
+      setError((err as Error).message);
+      setCopying(null);
+    }
+  }
+
+  const ownerInfo = (item: { shared: boolean; ownerId: number; ownerName: string }) =>
+    item.ownerId !== user?.id ? (
+      <span className="muted small-text"> · von {item.ownerName}</span>
+    ) : item.shared ? (
+      <span className="muted small-text" title="Für alle Benutzer verfügbar">
+        {' '}
+        · 👥 geteilt
+      </span>
+    ) : null;
+
+  const actionFor = (kind: 'workouts' | 'stretchings', item: { id: number; ownerId: number }) =>
+    item.ownerId === user?.id ? (
+      <button onClick={() => navigate(`/app/${kind === 'workouts' ? 'workout' : 'stretching'}/${item.id}`)}>Bearbeiten</button>
+    ) : (
+      <button
+        onClick={() => copy(kind, item.id)}
+        disabled={copying === `${kind}-${item.id}`}
+        title="Als eigene Kopie übernehmen und bearbeiten"
+      >
+        Kopieren
+      </button>
+    );
 
   useEffect(() => {
     Promise.all([api.get<Workout[]>('/api/workouts'), api.get<Stretching[]>('/api/stretchings')])
@@ -22,11 +60,13 @@ export default function Overview() {
       .catch((e) => setError(e.message));
   }, []);
 
-  if (error) return <div className="error">{error}</div>;
+  if (error && !workouts) return <div className="error">{error}</div>;
   if (!workouts || !stretchings) return <p className="muted">Lade …</p>;
 
   return (
     <>
+      {error && <div className="error">{error}</div>}
+      <TodayCard />
       <div className="section-title">
         <h1 style={{ margin: 0 }}>Workouts</h1>
         <button className="small" onClick={() => navigate('/app/workout/neu')}>
@@ -52,6 +92,7 @@ export default function Overview() {
                   {w.rounds} {w.rounds === 1 ? 'Runde' : 'Runden'} · {w.items.length}{' '}
                   {w.items.length === 1 ? 'Übung' : 'Übungen'} · ca. {formatMinutes(est.seconds)}
                   {est.hasReps && ' + Wdh.'}
+                  {ownerInfo(w)}
                 </div>
                 <div className="tile-actions">
                   <button
@@ -61,7 +102,7 @@ export default function Overview() {
                   >
                     ▶ Starten
                   </button>
-                  <button onClick={() => navigate(`/app/workout/${w.id}`)}>Bearbeiten</button>
+                  {actionFor('workouts', w)}
                 </div>
               </div>
             );
@@ -92,6 +133,7 @@ export default function Overview() {
                 </div>
                 <div className="muted small-text">
                   {s.items.length} {s.items.length === 1 ? 'Übung' : 'Übungen'} · ca. {formatMinutes(est.seconds)}
+                  {ownerInfo(s)}
                 </div>
                 <div className="tile-actions">
                   <button
@@ -101,7 +143,7 @@ export default function Overview() {
                   >
                     ▶ Starten
                   </button>
-                  <button onClick={() => navigate(`/app/stretching/${s.id}`)}>Bearbeiten</button>
+                  {actionFor('stretchings', s)}
                 </div>
               </div>
             );

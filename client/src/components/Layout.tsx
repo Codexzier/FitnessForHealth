@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { Avatar } from './Avatar';
+import { ESP32 } from '../target';
 
 export default function Layout() {
   const { user, logout } = useAuth();
@@ -83,14 +84,16 @@ export default function Layout() {
             <button onClick={() => go('/app/import/fortschritt')}>⬆️ Import Fortschritt</button>
             <hr />
             <button onClick={() => go('/app/einstellungen')}>⚙️ Einstellungen</button>
-            <button
-              onClick={async () => {
-                await logout();
-                navigate('/');
-              }}
-            >
-              👤 Benutzer wechseln
-            </button>
+            {(!ESP32 || user?.passwordRequired) && (
+              <button
+                onClick={async () => {
+                  await logout();
+                  navigate('/');
+                }}
+              >
+                {ESP32 ? '🔒 Abmelden' : '👤 Benutzer wechseln'}
+              </button>
+            )}
           </nav>
         </>
       )}

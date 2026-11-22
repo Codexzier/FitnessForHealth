@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { api } from '../api';
 import type { Exercise, StretchExercise } from '../types';
 import { ImagePicker, type ImageValue } from './ImagePicker';
+import { ESP32 } from '../target';
 
 export function ExerciseForm({
   exercise,
@@ -50,7 +51,7 @@ export function ExerciseForm({
         Beschreibung
         <textarea value={description} onChange={(e) => setDescription(e.target.value)} maxLength={5000} />
       </label>
-      <ImagePicker current={exercise?.image ?? null} value={image} onChange={setImage} />
+      {!ESP32 && <ImagePicker current={exercise?.image ?? null} value={image} onChange={setImage} />}
       <div className="row">
         {onDelete && (
           <button type="button" className="danger" onClick={onDelete}>
@@ -125,7 +126,7 @@ export function StretchExerciseForm({
           required
         />
       </label>
-      <ImagePicker current={exercise?.image ?? null} value={image} onChange={setImage} icon="🧘" />
+      {!ESP32 && <ImagePicker current={exercise?.image ?? null} value={image} onChange={setImage} icon="🧘" />}
       <div className="row">
         {onDelete && (
           <button type="button" className="danger" onClick={onDelete}>

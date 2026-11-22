@@ -3,3 +3,9 @@ dist/
 data/
 *.log
 .env
+dist-esp32/
+esp32/FitnessForHealth/secrets.h
+esp32/build/
+esp32/host/ffh-host
+esp32/host/data-host/
+esp32/host/host.log

@@ -12,6 +12,8 @@ export interface User {
 export interface Profile extends User {
   theme: ThemeName;
   colorMode: ColorMode;
+  /** nur ESP32-Variante: true, wenn ein Passwort gesetzt ist (dann gibt es „Abmelden“) */
+  passwordRequired?: boolean;
 }
 
 interface Owned {
